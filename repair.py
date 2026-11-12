@@ -225,6 +225,7 @@ def main():
     parser.add_argument('--script-root', type=Path, required=True, help=argparse.SUPPRESS)
     parser.add_argument('--from', dest='sources', action='append', default=[], help='Old whole-folder location; repeat for multiple moves')
     parser.add_argument('--apply', action='store_true')
+    parser.add_argument('--paths', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('--environment-output', type=Path, help=argparse.SUPPRESS)
     args = parser.parse_args()
     import winreg
