@@ -14,6 +14,48 @@ Needs Windows PowerShell 5.1+ and `codex` on your PATH. Git Bash is optional.
 
 This adds the folder to your user PATH and, if you use Git Bash, sources `cxp.sh` from `~/.bashrc` (and the login file Git Bash reads). It is safe to run again. Open a new terminal afterwards and run `cxp list`.
 
+## Repair after moving
+
+Move the entire folder, including `profiles`, with Codex closed. From the new
+location, preview the repairs, then apply them:
+
+```powershell
+.\cxp.ps1 repair
+.\cxp.ps1 repair --apply
+# If detection missed an old folder, or the old copy still exists:
+.\cxp.ps1 repair --from 'F:\codex-profiles'
+.\cxp.ps1 repair --from 'F:\codex-profiles' --apply
+```
+
+Only `repair` requires Python 3.11+ (`python` on PATH). Preview does not write
+configuration, environment settings, or backups. `--from` can be repeated for
+multiple previous locations. Automatic detection selects missing roots referenced
+by known profiles; an existing old copy requires an explicit `--from`.
+
+Repair updates `hooks.json`, relocated profile paths in `config.toml`, matching
+`CODEX_HOME` values, old PATH entries, and existing `cxp.sh` source lines in Bash
+startup files. It honors `CXP_ROOT` for data and uses the script's location for
+shell/PATH entries. Affected hook trust records are removed so changed commands
+must be approved again. It leaves credentials, transcripts, historical working
+directories, and unrelated paths alone. It does not install missing shell entries;
+use `install` for a first installation.
+
+For `state_*.sqlite`, repair updates `threads.rollout_path` only when the relocated
+transcript exists. Missing transcripts are reported and left unchanged. Databases
+are backed up through SQLite (including committed WAL contents), and each database
+update uses a transaction. Unsupported schemas stop the repair before changes.
+
+Applying refuses to run while a Claude/Codex process is detected. Close editor
+integrations too. Original files and saved user environment values go under
+`backups/repair-<timestamp>`; `files.json` maps each backup to its original path.
+Backups may contain private configuration. If an apply fails, inspect its error
+and backups before retrying; the whole repair is not a single transaction.
+Restart terminals and apps afterward, test hooks, and resume an existing session.
+Git Bash refreshes its profile variable; start a new shell for PATH and wrapper
+changes.
+
+Run isolated repair tests with `python -B .\tests\repair_test.py`.
+
 ## Quick start
 
 ```powershell
@@ -29,6 +71,7 @@ cxp run me@example.com resume     # run codex once under a profile, without swit
 | Command | What it does |
 | --- | --- |
 | `cxp install` | One-time setup: `cxp` in every new PowerShell and Git Bash terminal |
+| `cxp repair [--from <old-folder>] [--apply]` | Preview or repair references after moving this folder; requires Python 3.11+ |
 | `cxp list [--json]` | Show profiles. `*` marks the one active in this terminal, with its permission mode |
 | `cxp add <name> [--api-key]` | Create a profile and log in to it |
 | `cxp use [name] [--local]` | Switch this terminal and all new ones. No name means the default. `--local` switches this terminal only |

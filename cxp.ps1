@@ -485,6 +485,9 @@ function WithHome($dir, [scriptblock]$body) {
 }
 
 switch ($cmd) {
+    'repair' {
+        & (Join-Path $PSScriptRoot 'repair.ps1') -Tool cxp -Root $base -RepairArguments @($args | Select-Object -Skip 1)
+    }
     'list' {
         $def = DefaultName
         $i = 0
@@ -751,6 +754,8 @@ switch ($cmd) {
     default {
         @'
 cxp install            one-time setup: `cxp` in every new PowerShell and Git Bash terminal
+cxp repair [--from <old-folder>] [--apply]
+                       preview relocation repairs; --apply writes with backups (Python 3.11+)
 cxp list [--json]      show profiles (* = active in this terminal)
 cxp add <name> [--api-key]
                        create a profile and log in to it (browser, or an OpenAI

@@ -9,7 +9,7 @@ cxp() {
         # this shell only: ask cxp.ps1 what the variable should be (nothing for home)
         CODEX_HOME="$(powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$CXP_DIR\\cxp.ps1" path --env "${@:2}" | tr -d '\r')"
     # after use, or when rename/remove took this shell's profile folder away
-    elif [ "$1" = use ] || { [ -n "$CODEX_HOME" ] && [ ! -d "$CODEX_HOME" ]; }; then
+    elif [ "$1" = use ] || { [ "$1" = repair ] && [[ " $* " == *" --apply "* ]]; } || { [ -n "$CODEX_HOME" ] && [ ! -d "$CODEX_HOME" ]; }; then
         # read back what `use` just persisted, so "default"/no-name resolve in one place
         CODEX_HOME="$(powershell.exe -NoProfile -Command "[Environment]::GetEnvironmentVariable('CODEX_HOME','User')" | tr -d '\r')"
     else
