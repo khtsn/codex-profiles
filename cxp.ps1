@@ -11,6 +11,12 @@ if ($cmd -in 'backup', 'restore' -and @($args | Where-Object { $_ -in '--passwor
     $args = @($args | Where-Object { $_ -notin '--password', '-p' })
     $cmd = $args[0]; $name = $args[1]
 }
+$credsOnly = $false
+if ($cmd -in 'backup', 'restore' -and $args -contains '--creds') {   # the login alone: no config, note or data
+    $credsOnly = $true
+    $args = @($args | Where-Object { $_ -ne '--creds' })
+    $cmd = $args[0]; $name = $args[1]
+}
 $json = $false
 $offline = $false
 if ($cmd -in 'usage', 'pick' -and $args -contains '--offline') {
@@ -132,6 +138,10 @@ function SetPerm($cfg, $mode) {
 # A backup is the account, not the data: login + settings per profile.
 # ponytail: sessions/history are not backed up (100MB+, sqlite locked while codex runs); zip the profile folder if that's ever needed.
 $acctFiles = 'auth.json', 'config.toml', 'cxp-note.txt', 'cxp-pool-off'
+# What `backup --creds` / `restore --creds` move: the login alone.
+$credFiles = @('auth.json')
+$files = $acctFiles
+if ($credsOnly) { $files = $credFiles }
 
 function ProfilePath($n) {   # like ProfileDir, but home is a real path and the folder may not exist
     if ($n -eq 'home') { return Join-Path $HOME '.codex' }
@@ -155,13 +165,13 @@ function InPool($n) { -not (Test-Path -LiteralPath (PoolPath $n)) }
 
 function Opts { , @(@($name) + $rest | Where-Object { $_ }) }   # everything after the command, for commands whose flags go anywhere
 
-function SaveAccounts($names, $stamp, $base = $bakRoot) {   # -> names actually saved
+function SaveAccounts($names, $stamp, $base = $bakRoot) {   # -> names actually saved ($files: all account files, or the login alone)
     foreach ($n in $names) {
-        $files = @($acctFiles | ForEach-Object { Join-Path (ProfilePath $n) $_ } | Where-Object { Test-Path $_ })
-        if ($files.Count) {
+        $found = @($files | ForEach-Object { Join-Path (ProfilePath $n) $_ } | Where-Object { Test-Path $_ })
+        if ($found.Count) {
             $dst = Join-Path (Join-Path $base $stamp) $n
             New-Item -ItemType Directory -Force $dst | Out-Null
-            Copy-Item $files $dst
+            Copy-Item $found $dst
             $n
         }
     }
@@ -478,6 +488,52 @@ function UsageRow($u) {   # raw usage object -> one human-readable table row
         Today = Tok $u.tokens.today; Last7d = Tok $u.tokens.last_7d; All = Tok $u.tokens.all; Sessions = $u.sessions }
 }
 
+# --- Repair ----------------------------------------------------------------------------------
+# Codex's SQLite databases record a checksum of every schema migration they ran, and the Windows
+# build checksums the same migrations differently from the macOS / Linux one. So a profile folder
+# copied between them won't open ("failed to initialize sqlite state runtime"). Repair takes the
+# checksums from databases this codex has just made, and writes them only where the applied
+# migrations and the resulting schema already match. cxp.bash does the same with the same rules.
+# Only single quotes in the SQL: Windows PowerShell 5.1 mangles double quotes in native arguments.
+function Sql($db, $query) {
+    $out = & sqlite3 -cmd '.timeout 5000' $db $query 2>$null
+    if ($LASTEXITCODE) { throw "sqlite3 failed on $db" }
+    $out
+}
+function Schema($db) {   # its schema with line endings and spacing evened out
+    ((Sql $db "select type, name, sql from sqlite_master where name not like 'sqlite_%' order by type, name") -join ' ') -replace '\s+', ' '
+}
+function Migrations($db) { try { Sql $db 'select group_concat(version) from (select version from _sqlx_migrations order by version)' } catch { $null } }
+function Checksums($db) { try { (Sql $db "select version || ':' || hex(checksum) from _sqlx_migrations order by version") -join ',' } catch { $null } }
+
+function RefDbs($ref) {   # fills the empty folder $ref with databases made by this codex
+    New-Item -ItemType Directory -Path $ref | Out-Null
+    $h = StartLimits $ref   # the app server creates its databases on start; the lookup itself just fails
+    try { $null = ReadLimits $h } catch { }
+    if (-not (Get-ChildItem -LiteralPath $ref -Filter '*.sqlite')) {
+        if ($h.Error) { throw "Codex did not create its databases: $($h.Error)" }
+        throw 'Codex did not create its databases'
+    }
+}
+
+function Repair($dir, $n, $ref) {   # -> how many databases it fixed; says why it left any alone
+    $fixed = 0
+    foreach ($r in Get-ChildItem -LiteralPath $ref -Filter '*.sqlite') {
+        $db = Join-Path $dir $r.Name
+        if (-not (Test-Path -LiteralPath $db)) { continue }
+        if ((Checksums $db) -eq (Checksums $r.FullName)) { continue }
+        if ((Migrations $db) -ne (Migrations $r.FullName)) {
+            Write-Host "Left '$n' $($r.Name) alone: made by a different Codex version (update Codex on both machines, then repair again)"
+            continue
+        }
+        if ((Schema $db) -ne (Schema $r.FullName)) { Write-Host "Left '$n' $($r.Name) alone: its tables differ from this Codex's"; continue }
+        $set = (Sql $r.FullName "select 'update _sqlx_migrations set checksum = x''' || hex(checksum) || ''' where version = ' || version || ';' from _sqlx_migrations") -join ' '
+        try { $null = Sql $db "begin; $set commit;" } catch { throw "Could not update '$n' $($r.Name) (close Codex and try again)" }
+        $fixed++
+    }
+    $fixed
+}
+
 function WithHome($dir, [scriptblock]$body) {
     $old = $env:CODEX_HOME
     $env:CODEX_HOME = $dir
@@ -673,10 +729,12 @@ switch ($cmd) {
         $names = @(Names)
         if ($name) { $name = Resolve $name; ProfileDir $name | Out-Null; $names = @($name) }
         $stamp = Stamp
+        $what = 'login + config'
+        if ($credsOnly) { $stamp += '-creds'; $what = 'login only' }
         if (-not $usePw) {
             $saved = @(SaveAccounts $names $stamp)
             if (-not $saved.Count) { throw 'Nothing to back up (no login or config found)' }
-            "Backed up $($saved -join ', ') to $(Join-Path $bakRoot $stamp)"
+            "Backed up $($saved -join ', ') ($what) to $(Join-Path $bakRoot $stamp)"
         } else {
             $pass = GetPassword $true
             $tmp = Join-Path ([IO.Path]::GetTempPath()) "cxp-$([guid]::NewGuid())"
@@ -687,7 +745,7 @@ switch ($cmd) {
                 $out = Join-Path $bakRoot "$stamp.enc"
                 Pack (Join-Path $tmp $stamp) $pass $out
             } finally { Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue }
-            "Backed up $($saved -join ', ') to $out (encrypted)"
+            "Backed up $($saved -join ', ') ($what) to $out (encrypted)"
         }
     }
     'backups' {
@@ -699,9 +757,26 @@ switch ($cmd) {
             }
         }
     }
+    'repair' {   # cxp repair [name]: databases from a profile folder copied from macOS / Linux (or to it) open again
+        if (-not (Get-Command sqlite3 -ErrorAction SilentlyContinue)) { throw 'sqlite3 is required (winget install SQLite.SQLite)' }
+        if ($name) { $name = Resolve $name; ProfileDir $name | Out-Null; $names = @($name) } else { $names = Names }
+        $ref = Join-Path ([IO.Path]::GetTempPath()) "cxp-ref-$([guid]::NewGuid().ToString('N'))"
+        try {
+            RefDbs $ref
+            foreach ($n in $names) {
+                $dir = ProfilePath $n
+                if (-not (Test-Path -LiteralPath $dir)) { continue }
+                $fixed = Repair $dir $n $ref
+                if ($fixed) { "Repaired $fixed database(s) in '$n'" } else { "'$n': nothing to repair" }
+            }
+        } finally { Remove-Item -LiteralPath $ref -Recurse -Force -ErrorAction SilentlyContinue }
+    }
     'restore' {
-        if ($name) { $name = Resolve $name }   # no name = every profile in the backup
         $stamp = $rest[0]
+        # a lone backup id works too: `cxp restore 20261110-165355`
+        if ($name -and -not $stamp -and $name -match '^\d{8}-\d{6}' -and -not (Test-Path (Join-Path $root $name)) -and
+            ((Test-Path (Join-Path $bakRoot $name)) -or (Test-Path (Join-Path $bakRoot "$name.enc")))) { $stamp = $name; $name = $null }
+        if ($name) { $name = Resolve $name }   # no name = every profile in the backup
         $tmp = $null   # decrypted copy of an encrypted backup, always deleted at the end
         try {
             $src = $null
@@ -739,13 +814,19 @@ switch ($cmd) {
             }
             $pre = "$(Stamp)-before-restore"
             $kept = @(SaveAccounts $names $pre)   # what is about to be overwritten (plain, like the live files)
-            foreach ($n in $names) {
+            $restored = @(foreach ($n in $names) {
+                $found = @($files | ForEach-Object { Join-Path (Join-Path $src $n) $_ } | Where-Object { Test-Path $_ })
+                if (-not $found.Count) { [Console]::Error.WriteLine("cxp: skipped '$n': nothing to restore in this backup"); continue }
                 $dst = ProfilePath $n
                 New-Item -ItemType Directory -Force $dst | Out-Null   # brings back a removed profile
-                Copy-Item (Join-Path (Join-Path $src $n) '*') $dst -Force
-            }
+                Copy-Item $found $dst -Force
+                $n
+            })
+            if (-not $restored.Count) { throw 'Nothing restored' }
         } finally { if ($tmp) { Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue } }
-        "Restored $($names -join ', ') from backup $stamp"
+        $what = ''
+        if ($credsOnly) { $what = 'login for ' }
+        "Restored $what$($restored -join ', ') from backup $stamp"
         if ($kept.Count) { "Previous login/config kept as backup $pre" }
     }
     default {
@@ -778,15 +859,18 @@ cxp pick [-n <count>] [--json] [--offline]
                        print the pool profile(s) with the most room left
 cxp rename <old> <new> rename a profile
 cxp remove <name> [-y] delete a profile and all its data (-y skips the prompt)
-cxp backup [name] [--password]
+cxp backup [name] [--password] [--creds]
                        save login + config + note (not sessions) of one / all profiles;
-                       --password (or -p) encrypts it (AES-256, asks for a password)
+                       --password (or -p) encrypts it (AES-256, asks for a password);
+                       --creds saves only the login (auth.json), nothing else
 cxp backups            list backups
-cxp restore [name] [id] [--password]
+cxp restore [name] [id] [--password] [--creds]
                        restore one / all profiles from the newest backup, or backup <id>;
                        --password picks the newest encrypted one (an encrypted <id> asks
                        for the password on its own); recreates removed profiles, keeps
-                       what it overwrites as a backup
+                       what it overwrites as a backup; --creds restores only the login
+cxp repair [name]      after copying profile folders between Windows and macOS / Linux:
+                       makes their Codex databases open here (one / all profiles)
 "home" is your original ~/.codex. Anywhere a name goes you can also give
 "default" or the number from `cxp list` (cxp use 2).
 '@

@@ -1,8 +1,8 @@
 # cxp
 
-A profile switcher for [Codex CLI](https://github.com/openai/codex) on Windows. Each profile is its own `CODEX_HOME`, with its own login, sessions, history and config, so you can move between several OpenAI accounts without logging out and back in.
+A profile switcher for [Codex CLI](https://github.com/openai/codex) on Windows, macOS and Linux. Each profile is its own `CODEX_HOME`, with its own login, sessions, history and config, so you can move between several OpenAI accounts without logging out and back in.
 
-Profiles live in `profiles\<name>` next to the script. The special profile `home` is your normal `~/.codex`.
+Profiles live in `profiles/<name>` next to the script. The special profile `home` is your normal `~/.codex`.
 
 ## Install
 
@@ -13,6 +13,14 @@ Needs Windows PowerShell 5.1+ and `codex` on your PATH. Git Bash is optional.
 ```
 
 This adds the folder to your user PATH and, if you use Git Bash, sources `cxp.sh` from `~/.bashrc` (and the login file Git Bash reads). It is safe to run again. Open a new terminal afterwards and run `cxp list`.
+
+On macOS or Linux it needs bash 3.2+ (macOS's own is fine; zsh works as your shell), `jq`, `zip`/`unzip`, and OpenSSL 3 for encrypted backups (`brew install jq openssl@3` on macOS). Run once from bash or zsh:
+
+```sh
+~/projects/codex-profiles/cxp.bash install
+```
+
+This adds `source ".../cxp.sh"` to `~/.zshrc` and/or `~/.bashrc` (and `~/.bash_profile` for bash on macOS). `cxp use` saves your choice in `profiles/.use`, and new terminals start on that profile. The Windows tool is `cxp.ps1` and the macOS / Linux one is `cxp.bash`; they share the profile layout and the backup format, so a backup made on one restores on the other.
 
 ## Quick start
 
@@ -28,7 +36,7 @@ cxp run me@example.com resume     # run codex once under a profile, without swit
 
 | Command | What it does |
 | --- | --- |
-| `cxp install` | One-time setup: `cxp` in every new PowerShell and Git Bash terminal |
+| `cxp install` | One-time setup: `cxp` in every new PowerShell and Git Bash terminal (Windows), or bash and zsh terminal (macOS / Linux) |
 | `cxp list [--json]` | Show profiles. `*` marks the one active in this terminal, with its permission mode |
 | `cxp add <name> [--api-key]` | Create a profile and log in to it |
 | `cxp use [name] [--local]` | Switch this terminal and all new ones. No name means the default. `--local` switches this terminal only |
@@ -42,9 +50,10 @@ cxp run me@example.com resume     # run codex once under a profile, without swit
 | `cxp pick [-n <count>] [--json] [--offline]` | Print the pool profile with the most room left |
 | `cxp rename <old> <new>` | Rename a profile |
 | `cxp remove <name> [-y]` | Delete a profile and all its data. `-y` skips the confirmation |
-| `cxp backup [name] [--password]` | Save login and config of one or all profiles |
+| `cxp backup [name] [--password] [--creds]` | Save login and config of one or all profiles (`--creds`: login only) |
 | `cxp backups` | List backups |
-| `cxp restore [name] [id] [--password]` | Restore one or all profiles from a backup |
+| `cxp restore [name] [id] [--password] [--creds]` | Restore one or all profiles from a backup (`--creds`: login only) |
+| `cxp repair [name]` | Make Codex open the databases of profile folders copied between Windows and macOS / Linux |
 
 Anywhere a name goes you can also give `default`, or the number shown by `cxp list` (for example `cxp use 2`).
 
@@ -106,6 +115,19 @@ cxp restore me@example.com 20261110-165357   # from a specific backup
 
 Restoring brings back a removed profile, and first saves what it overwrites as a `<timestamp>-before-restore` backup. Those snapshots are only used when you name them by id.
 
+### Logins only
+
+Add `--creds` to save or restore **only the login** (`auth.json`): no config, note, pool setting or data.
+
+```sh
+cxp backup --creds                  # every profile's login -> backups/<timestamp>-creds
+cxp backup me@example.com --creds -p   # one login, encrypted -> backups/<timestamp>-creds.enc
+cxp restore me@example.com --creds  # put back just the login, from the newest backup that has the profile
+cxp restore 20261112-021638-creds   # a lone id works too
+```
+
+`restore --creds` takes only `auth.json` from any backup, full or logins-only, and leaves the rest of the profile as it is. Codex keeps its login in `auth.json` unless `cli_auth_credentials_store` is set to `keyring` in `config.toml`; with the keyring there is no file to back up.
+
 ### Encrypted backups
 
 Add `--password` to encrypt:
@@ -124,6 +146,17 @@ Notes:
 - There is no password recovery.
 - The `-before-restore` snapshots are not encrypted, same as the live `auth.json` they copy.
 - For scripts, set `CXP_PASSWORD` to skip the prompt.
+
+### Moving whole profile folders between Windows and macOS / Linux
+
+Backups hold only the login and config. If you copy a whole profile folder (sessions, history and Codex's databases) from Windows to a Mac or back, Codex there stops with `failed to initialize sqlite state runtime`. Each Codex database records a checksum of every schema change it applied, and the Windows and macOS / Linux builds of Codex calculate those differently. Run this once after copying:
+
+```sh
+cxp repair                          # every profile, including home
+cxp repair me@example.com           # one profile
+```
+
+`repair` has Codex make a fresh set of databases in a temporary folder and copies their checksums into your profiles. It only changes a database whose applied changes and tables already match the fresh one, so your threads and history are untouched. It leaves a database alone, and says so, if it was made by a different Codex version: update Codex on both machines and run it again. It needs `codex` and `sqlite3` on PATH (Windows: `winget install SQLite.SQLite`). Close Codex first.
 
 ## Account notes
 
@@ -201,7 +234,7 @@ Pick a profile's `path` from `list` to run Codex under it directly with `CODEX_H
 | Variable | Effect |
 | --- | --- |
 | `CODEX_HOME` | Set by `cxp use` (per terminal, and saved for new ones unless `--local`). Unset means `home` |
-| `CXP_ROOT` | Keep `profiles\` and `backups\` somewhere else instead of next to the script |
+| `CXP_ROOT` | Keep `profiles/` and `backups/` somewhere else instead of next to the script |
 | `CXP_PASSWORD` | Backup password, to skip the prompt |
 
 ## Tests
@@ -210,14 +243,19 @@ Pick a profile's `path` from `list` to run Codex under it directly with `CODEX_H
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\usage.ps1
 ```
 
+```sh
+bash tests/cxp.bash        # macOS / Linux
+```
+
 The tests use a temporary `CXP_ROOT` and a fake `codex`, so they do not touch your profiles or log in.
 
 ## Files
 
 ```
-cxp.ps1      the implementation
-cxp.sh       Git Bash wrapper (a shell function, so `use` can set CODEX_HOME)
-tests\       integration tests
+cxp.ps1      the implementation on Windows
+cxp.bash     the implementation on macOS / Linux
+cxp.sh       bash / zsh wrapper (a shell function, so `use` can set CODEX_HOME)
+tests/       integration tests (usage.ps1 on Windows, cxp.bash on macOS / Linux)
 profiles\    one folder per profile (git-ignored)
 backups\     backups (git-ignored)
 ```
