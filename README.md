@@ -81,7 +81,7 @@ cxp run me@example.com resume     # run codex once under a profile, without swit
 | `cxp install` | One-time setup: `cxp` in every new PowerShell and Git Bash terminal (Windows), or bash and zsh terminal (macOS / Linux) |
 | `cxp repair --paths [--from <old-folder>] [--apply]` | Preview or repair moved paths on Windows; requires Python 3.11+ |
 | `cxp list [--json]` | Show profiles. `*` marks the one active in this terminal, with its permission mode |
-| `cxp add <name> [--api-key]` | Create a profile and log in to it |
+| `cxp add <name> [--api-key]` | Create a profile and log in to it. It starts with your `~/.codex` settings and skills |
 | `cxp use [name] [--local]` | Switch this terminal and all new ones. No name means the default. `--local` switches this terminal only |
 | `cxp run <name> [--perm <mode>] [args]` | Run `codex` once under a profile. Extra args go straight to codex |
 | `cxp path <name>` | Print the profile's `CODEX_HOME` folder |
@@ -99,6 +99,14 @@ cxp run me@example.com resume     # run codex once under a profile, without swit
 | `cxp repair [name]` | Make Codex open the databases of profile folders copied between Windows and macOS / Linux |
 
 Anywhere a name goes you can also give `default`, or the number shown by `cxp list` (for example `cxp use 2`).
+
+### Skills
+
+A new profile starts with your own skills from `~/.codex/skills`, so a skill you
+installed for `home` works in every profile you add afterwards. On macOS / Linux each
+one is a link to the folder in `~/.codex/skills` and follows its changes; on Windows it
+is a copy. Profiles that already exist are not touched; link or copy a skill into
+`profiles/<name>/skills/` yourself.
 
 ### Profile names
 

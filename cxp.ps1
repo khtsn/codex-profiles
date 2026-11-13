@@ -143,6 +143,16 @@ $credFiles = @('auth.json')
 $files = $acctFiles
 if ($credsOnly) { $files = $credFiles }
 
+function HomeSkills($dir) {   # a new profile starts with home's own skills: copies, since links need admin rights here
+    $src = Join-Path $HOME '.codex\skills'
+    if (-not (Test-Path $src)) { return }
+    foreach ($s in @(Get-ChildItem $src -Directory | Where-Object { $_.Name -notmatch '^\.' })) {   # not .system\, which codex fills in itself
+        $dst = Join-Path $dir 'skills'
+        New-Item -ItemType Directory -Force $dst | Out-Null
+        Copy-Item -LiteralPath $s.FullName -Destination $dst -Recurse
+    }
+}
+
 function ProfilePath($n) {   # like ProfileDir, but home is a real path and the folder may not exist
     if ($n -eq 'home') { return Join-Path $HOME '.codex' }
     if ($n -notmatch $nameRe) { throw "Bad profile name '$n'" }
@@ -569,6 +579,7 @@ switch ($cmd) {
         $cfg = Join-Path $HOME '.codex\config.toml'
         if (Test-Path $cfg) { Copy-Item $cfg $dir }   # start from your current settings
         SetPerm (Join-Path $dir 'config.toml') 'auto'   # safe default; `cxp perm <name> bypass` opts out of prompts and sandbox
+        HomeSkills $dir
         Login $dir ([bool]@($rest | Where-Object { $_ -in '--api-key', '--key' }).Count)   # --key as in ccp
         "Created '$name'. Switch to it: cxp use $name"
     }

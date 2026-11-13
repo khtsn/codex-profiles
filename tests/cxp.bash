@@ -162,8 +162,11 @@ for sh in bash zsh; do
     [ "$got" = "$profile" ] || fail "cxp.sh under $sh: new shells did not start on the saved profile"
 done
 
-# add: --key spelling, and the safe default mode
-echo sk-test | cxp add fresh --key >/dev/null || fail 'add --key failed'
+# add: --key spelling, the safe default mode, and home's skills
+mkdir -p "$fixture/home/.codex/skills/demo" "$fixture/home/.codex/skills/.system"
+echo sk-test | HOME=$fixture/home cxp add fresh --key >/dev/null || fail 'add --key failed'
+[ "$(readlink "$fixture/profiles/fresh/skills/demo")" = "$fixture/home/.codex/skills/demo" ] || fail 'add did not link the home skill'
+[ ! -e "$fixture/profiles/fresh/skills/.system" ] || fail 'add should leave .system/ out'
 [ "$(cxp list --json | jq -r '.[] | select(.name == "fresh") | .permissions')" = auto ] || fail 'New profiles should start in auto'
 # repair: checksums from another OS are replaced; a database from another codex version is left alone
 command -v sqlite3 >/dev/null || fail 'sqlite3 is needed for the repair checks'

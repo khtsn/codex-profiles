@@ -86,6 +86,15 @@ NewProfileDir() {   # path for a profile that must not exist yet
     echo "$root/$n"
 }
 
+HomeSkills() {   # a new profile starts with home's own skills: links, so they follow home's copies
+    local s
+    for s in "$HOME/.codex/skills"/*/; do
+        s=${s%/}
+        [ -d "$s" ] || continue   # the glob skips .system/, which codex fills in itself
+        mkdir -p "$1/skills" && ln -s "$s" "$1/skills/${s##*/}"
+    done
+}
+
 ProfilePath() {   # like ProfileDir, but home is a real path and the folder may not exist
     if [ "$1" = home ]; then echo "$HOME/.codex"; return; fi
     [[ $1 =~ $nameRe ]] || die "Bad profile name '$1'"
@@ -549,6 +558,7 @@ case $cmd in
         mkdir -p "$dir" || exit 1
         [ -f "$HOME/.codex/config.toml" ] && cp "$HOME/.codex/config.toml" "$dir/"   # start from your current settings
         SetPerm "$dir/config.toml" auto   # safe default; `cxp perm <name> bypass` opts out of prompts and sandbox
+        HomeSkills "$dir"
         k=; if Has --api-key "${rest[@]}" || Has --key "${rest[@]}"; then k=1; fi   # --key as in ccp
         Login "$dir" "$k" || exit 1
         echo "Created '$name'. Switch to it: cxp use $name"
