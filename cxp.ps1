@@ -324,7 +324,13 @@ function StartLimits($profileHome) {   # -> handle for ReadLimits; never throws,
         $start.EnvironmentVariables['CODEX_HOME'] = $profileHome
         $process = [Diagnostics.Process]::new()
         $process.StartInfo = $start
-        if (-not $process.Start()) { throw 'could not start Codex app server' }
+        # .NET Framework writes the child's stdin in Console.InputEncoding and sends its BOM at Start;
+        # a UTF-8-with-BOM console would corrupt the first JSON-RPC line, so start with plain UTF-8.
+        $savedEnc = [Console]::InputEncoding
+        try {
+            if ($savedEnc.GetPreamble().Length) { [Console]::InputEncoding = [Text.UTF8Encoding]::new($false) }
+            if (-not $process.Start()) { throw 'could not start Codex app server' }
+        } finally { if ([Console]::InputEncoding -ne $savedEnc) { [Console]::InputEncoding = $savedEnc } }
         $h.Process = $process
         $h.Stderr = $process.StandardError.ReadToEndAsync() # drain so diagnostics cannot block the child
         $process.StandardInput.WriteLine('{"id":1,"method":"initialize","params":{"clientInfo":{"name":"cxp","version":"1.0.0"}}}')

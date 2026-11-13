@@ -34,7 +34,9 @@ exit /b 7
 "%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "%~dp0server.ps1"'
     Set-Content -LiteralPath (Join-Path $fixture 'server.ps1') -Value @'
 Add-Content -LiteralPath (Join-Path $PSScriptRoot 'launches') -Value $env:CODEX_HOME
-while ($null -ne ($line = [Console]::ReadLine())) {
+$stdin = [IO.StreamReader]::new([Console]::OpenStandardInput(), [Text.UTF8Encoding]::new($false), $false)   # keep a BOM visible
+while ($null -ne ($line = $stdin.ReadLine())) {
+    if ($line.Length -and $line[0] -eq [char]0xFEFF) { continue }   # like real codex: a BOM-prefixed line is not valid JSON-RPC
     $request = $line | ConvertFrom-Json
     if ($request.method -eq 'initialize') {
         [Console]::WriteLine('{"id":1,"result":{}}')
@@ -67,6 +69,13 @@ while ($null -ne ($line = [Console]::ReadLine())) {
     Assert ($live[0].path -eq $profile -and $live[0].pool -eq $true) 'Usage JSON shared fields wrong'
     Assert ((Get-Content -LiteralPath (Join-Path $fixture 'launches')) -eq $profile) 'Wrong profile home passed to server'
     Assert ($env:CODEX_HOME -eq $savedHome) 'Parent profile changed'
+    $savedEnc = [Console]::InputEncoding   # a UTF-8-with-BOM console must not put a BOM on the server's stdin
+    try {
+        [Console]::InputEncoding = [Text.UTF8Encoding]::new($true)
+        $bom = (& $scriptPath usage test --json | Out-String) | ConvertFrom-Json
+        Assert ($bom[0].limits_source -eq 'live') 'Live lookup failed with a UTF-8-with-BOM console'
+        Assert ([Console]::InputEncoding.GetPreamble().Length -eq 3) 'usage did not restore the console input encoding'
+    } finally { [Console]::InputEncoding = $savedEnc }
     $local = (& $scriptPath usage --offline test --json | Out-String) | ConvertFrom-Json
     Assert ($local[0].limits_source -eq 'local' -and $local[0].limits[0].used_percent -eq 40) 'Offline limits incorrect'
     Assert ($local[0].headroom_percent -eq 60) 'Offline headroom incorrect'
@@ -74,7 +83,7 @@ while ($null -ne ($line = [Console]::ReadLine())) {
     Assert ($table -match '#\s+Profile' -and $table -match '2\s+test' -and $table.Contains('Renew next month')) 'Usage table omitted index or note'
     $upper = (& $scriptPath usage TEST --offline --json | Out-String) | ConvertFrom-Json
     Assert ($upper[0].number -eq 2) 'Case-insensitive profile lookup changed the usage index'
-    Assert (@(Get-Content -LiteralPath (Join-Path $fixture 'launches')).Count -eq 1) 'Offline mode started a server'
+    Assert (@(Get-Content -LiteralPath (Join-Path $fixture 'launches')).Count -eq 2) 'Offline mode started a server'
     foreach ($mode in 'failure', 'exit', 'timeout') {
         $env:CXP_TEST_MODE = $mode
         $watch = [Diagnostics.Stopwatch]::StartNew()
