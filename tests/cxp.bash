@@ -162,11 +162,13 @@ for sh in bash zsh; do
     [ "$got" = "$profile" ] || fail "cxp.sh under $sh: new shells did not start on the saved profile"
 done
 
-# add: --key spelling, the safe default mode, and home's skills
+# add: --key spelling, the safe default mode, and home's skills and *-axi hooks
 mkdir -p "$fixture/home/.codex/skills/demo" "$fixture/home/.codex/skills/.system"
+echo '{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"cc-status"}]},{"matcher":"","hooks":[{"type":"command","command":"gh-axi","timeout":10}]}],"Stop":[{"hooks":[{"type":"command","command":"cc-status"}]}]}}' > "$fixture/home/.codex/hooks.json"
 echo sk-test | HOME=$fixture/home cxp add fresh --key >/dev/null || fail 'add --key failed'
 [ "$(readlink "$fixture/profiles/fresh/skills/demo")" = "$fixture/home/.codex/skills/demo" ] || fail 'add did not link the home skill'
 [ ! -e "$fixture/profiles/fresh/skills/.system" ] || fail 'add should leave .system/ out'
+[ "$(jq -c '.hooks' "$fixture/profiles/fresh/hooks.json")" = '{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"gh-axi","timeout":10}]}]}' ] || fail 'add should copy only the *-axi startup hooks'
 [ "$(cxp list --json | jq -r '.[] | select(.name == "fresh") | .permissions')" = auto ] || fail 'New profiles should start in auto'
 # repair: checksums from another OS are replaced; a database from another codex version is left alone
 command -v sqlite3 >/dev/null || fail 'sqlite3 is needed for the repair checks'

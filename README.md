@@ -81,7 +81,7 @@ cxp run me@example.com resume     # run codex once under a profile, without swit
 | `cxp install` | One-time setup: `cxp` in every new PowerShell and Git Bash terminal (Windows), or bash and zsh terminal (macOS / Linux) |
 | `cxp repair --paths [--from <old-folder>] [--apply]` | Preview or repair moved paths on Windows; requires Python 3.11+ |
 | `cxp list [--json]` | Show profiles. `*` marks the one active in this terminal, with its permission mode |
-| `cxp add <name> [--api-key]` | Create a profile and log in to it. It starts with your `~/.codex` settings and skills |
+| `cxp add <name> [--api-key]` | Create a profile and log in to it. It starts with your `~/.codex` settings, skills and `*-axi` startup hooks |
 | `cxp use [name] [--local]` | Switch this terminal and all new ones. No name means the default. `--local` switches this terminal only |
 | `cxp run <name> [--perm <mode>] [args]` | Run `codex` once under a profile. Extra args go straight to codex |
 | `cxp path <name>` | Print the profile's `CODEX_HOME` folder |
@@ -107,6 +107,12 @@ installed for `home` works in every profile you add afterwards. On macOS / Linux
 one is a link to the folder in `~/.codex/skills` and follows its changes; on Windows it
 is a copy. Profiles that already exist are not touched; link or copy a skill into
 `profiles/<name>/skills/` yourself.
+
+It also gets a `hooks.json` with the `SessionStart` hooks from `~/.codex/hooks.json`
+whose commands all end in `-axi` (such as `gh-axi`, `chrome-devtools-axi`,
+`lavish-axi`), which set up the tools some skills use. Home's other hooks are not
+copied. Codex runs them only when `hooks = true` is set under `[features]`, which a new
+profile has if your `~/.codex/config.toml` does.
 
 ### Profile names
 

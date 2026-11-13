@@ -95,6 +95,14 @@ HomeSkills() {   # a new profile starts with home's own skills: links, so they f
     done
 }
 
+HomeHooks() {   # a new profile gets home's *-axi startup hooks in its hooks.json; home's other hooks stay home's
+    local src="$HOME/.codex/hooks.json" axi
+    [ -f "$src" ] || return 0
+    axi=$(jq -c '[.hooks.SessionStart[]? | select((.hooks // []) != [] and all(.hooks[]; (.command // "") | test("-axi$")))]' "$src" 2>/dev/null) || return 0
+    [ "$axi" = '[]' ] && return 0
+    jq -n --argjson axi "$axi" '{hooks: {SessionStart: $axi}}' > "$1/hooks.json"
+}
+
 ProfilePath() {   # like ProfileDir, but home is a real path and the folder may not exist
     if [ "$1" = home ]; then echo "$HOME/.codex"; return; fi
     [[ $1 =~ $nameRe ]] || die "Bad profile name '$1'"
@@ -559,6 +567,7 @@ case $cmd in
         [ -f "$HOME/.codex/config.toml" ] && cp "$HOME/.codex/config.toml" "$dir/"   # start from your current settings
         SetPerm "$dir/config.toml" auto   # safe default; `cxp perm <name> bypass` opts out of prompts and sandbox
         HomeSkills "$dir"
+        HomeHooks "$dir"   # codex runs them only with hooks = true under [features], which comes with home's config.toml
         k=; if Has --api-key "${rest[@]}" || Has --key "${rest[@]}"; then k=1; fi   # --key as in ccp
         Login "$dir" "$k" || exit 1
         echo "Created '$name'. Switch to it: cxp use $name"

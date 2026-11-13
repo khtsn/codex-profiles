@@ -153,6 +153,17 @@ function HomeSkills($dir) {   # a new profile starts with home's own skills: cop
     }
 }
 
+function HomeHooks($dir) {   # a new profile gets home's *-axi startup hooks in its hooks.json; home's other hooks stay home's
+    $src = Join-Path $HOME '.codex\hooks.json'
+    if (-not (Test-Path $src)) { return }
+    try { $h = [IO.File]::ReadAllText($src) | ConvertFrom-Json } catch { return }
+    if (-not $h -or -not $h.hooks) { return }
+    $axi = @($h.hooks.SessionStart | Where-Object { $_ -and @($_.hooks).Count -and -not @($_.hooks | Where-Object { "$($_.command)" -notmatch '-axi$' }).Count })
+    if (-not $axi.Count) { return }
+    $out = [pscustomobject]@{ hooks = [pscustomobject]@{ SessionStart = $axi } }
+    [IO.File]::WriteAllText((Join-Path $dir 'hooks.json'), ($out | ConvertTo-Json -Depth 100))   # UTF-8 without BOM
+}
+
 function ProfilePath($n) {   # like ProfileDir, but home is a real path and the folder may not exist
     if ($n -eq 'home') { return Join-Path $HOME '.codex' }
     if ($n -notmatch $nameRe) { throw "Bad profile name '$n'" }
@@ -580,6 +591,7 @@ switch ($cmd) {
         if (Test-Path $cfg) { Copy-Item $cfg $dir }   # start from your current settings
         SetPerm (Join-Path $dir 'config.toml') 'auto'   # safe default; `cxp perm <name> bypass` opts out of prompts and sandbox
         HomeSkills $dir
+        HomeHooks $dir   # codex runs them only with hooks = true under [features], which comes with home's config.toml
         Login $dir ([bool]@($rest | Where-Object { $_ -in '--api-key', '--key' }).Count)   # --key as in ccp
         "Created '$name'. Switch to it: cxp use $name"
     }
